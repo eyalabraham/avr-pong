@@ -25,35 +25,56 @@
 #define     HSYNC           480             // horizontal sync rate 63.5uSec @ 8MKz clock (with TIMER1 Fclk/1)
 #define     HSYNCHALF       (HSYNC/2)       // half the horizontal sync rate 31.75uSec @ 8MKz clock (with TIMER0 Fclk/1)
 #define     SYNCWIDTH       24              // horizontal sync pulse width 4.7uSec @ 8MKz clock (with TIMER0 Fclk/1)
+#define     EQUWIDTH        10              // equalizer pulse width
+#define     VSYNCWIDTH      216             // vsync pulse width
 #define     BACKPORCH       SYNCWIDTH       // back-porch time width 4.7uSec @ 8MKz clock (with TIMER0 Fclk/1)
-#define     MAXLINES        526             // max line count
 
-#define     PIXELBYTES      20              // bytes in scan line, pixel-resolution = PIXELBYTES x 8
+// non-interlace video 48x80 pixels
+#define     FIRSTLINE       1               // first scan line index <- start field sync/vertical here
+#define     LASTLINE        262             // max line count of non-interlaced field
+#define     STARTRENDER     20              // NTSC first visible line <- start rendering here
+#define     STOPRENDER      261             // NTSC last visible line
+#define     RENDERREP       5               // number of time to repeat a line rendering (save RAM lower resolution)
+#define     PIXELBYTES      10              // bytes in scan line, pixel-resolution = PIXELBYTES x 8
+#define     VIDEORAM        (((STOPRENDER - STARTRENDER + 1) * PIXELBYTES) / RENDERREP) // video ram size in bytes
+
+#define     TEMPPIXBYTES    20
 
 /* ----------------------------------------------------------------------------
  * global variables
  */
-uint16_t    scanLine          = 0;          // scan line counter
-uint8_t     video[PIXELBYTES] = {0x00,      // video data
-                                 0xff,
-                                 0x00,
-                                 0xff,
-                                 0x00,
-                                 0xff,
-                                 0x00,
-                                 0xff,
-                                 0x00,
-                                 0xff,
-                                 0x00,
-                                 0xff,
-                                 0x00,
-                                 0xff,
-                                 0x00,
-                                 0xff,
-                                 0x00,
-                                 0xff,
-                                 0x00,
-                                 0x01};
+void        (*syncHandler)(void);           // sync handler function pointer
+uint16_t    scanLine;                       // scan line counter
+uint8_t     halfLineCounter;                // to count half scan line increments
+uint8_t     skipRendering;                  // renderer enable flag
+uint8_t     video[TEMPPIXBYTES] = {0x55,    // video data
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55,
+                                   0x55};
+
+/* ----------------------------------------------------------------------------
+ * function definitions
+ */
+void ioinit(void);
+void equalizing(void);
+void vsync(void);
+void hsync(void);
 
 /* ----------------------------------------------------------------------------
  * ioinit()
@@ -83,7 +104,7 @@ void ioinit(void)
     TCCR1B = 0x09;          // TIMER1 mode 4 with Fclk/1
     TCCR1C = 0x00;
     TCNT1  = 0;             // initialize counter to 0
-    OCR1A  = HSYNC;         // produce and interrupt at hsync rate of 63.5uSec
+    OCR1A  = HSYNCHALF;     // produce and interrupt at rate of half the line time of 63.5uSec
     OCR1B  = 0;             // not used
     ICR1   = 0;             // not used
     TIMSK1 = 0x02;          // interrupt on output compare A
@@ -100,7 +121,7 @@ void ioinit(void)
     //         or see description of the UDRIE bit for interrupt on 'Data Register Empty'
     UCSR0B = 0x00;          // don't enable transmitter yet, idle is 'hi' and we need a 'lo', set bit.5 UDRIE for interrupt setup
     UCSR0C = 0xC0;          // SPI mode, Tx MSB first
-    UBRR0L = 0;             // to get 4Mbps (see Table 20-1 page 205)
+    UBRR0L = 1;             // to get 2Mbps (see Table 20-1 page 205)
     UBRR0H = 0;
 
     // initialize general IO pins for output
@@ -122,22 +143,102 @@ ISR(TIMER1_COMPA_vect, ISR_NAKED)
 }
 
 /* ----------------------------------------------------------------------------
- * hsyncHandler
+ * equalizing
+ *
+ *  generate pre-Equalizing sync pulses
+ *  ~2.2uSec width of '0' the rest at '1' and total duration of half a scan line
+ *  called six times before vertical sync and six times after
+ *
+ */
+void equalizing(void)
+{
+    // generate trigger signal for scope sync
+    PORTD ^= 0x08;
+    PORTD ^= 0x08;
+
+    // use Timer0 to time and output a 2.2uSec 'lo' pulse
+    TCNT0   = 0;            // initialize counter to 0
+    OCR0A   = EQUWIDTH;     // initialize pulse width
+    PORTD  &= 0xfb;         // sync pulse to 'lo'
+    TCCR0B |= 0x01;         // TIMER0 mode 2, start @ Fclk/1
+    loop_until_bit_is_set(TIFR0, OCF0A);
+    PORTD  |= 0x04;         // Sync pulse 'hi'
+    TCCR0B  = 0x00;         // stop timer
+    TIFR0  |= 0x02;         // clear OCF0A flag
+
+    halfLineCounter++;      // use this time to increment scan line
+    if ( halfLineCounter == 2)
+    {
+        scanLine++;
+        halfLineCounter = 0;
+    }
+
+    switch ( scanLine)
+    {
+    case 4:
+        syncHandler = &vsync;
+        OCR1A  = HSYNCHALF;
+        break;
+    case 10:
+        syncHandler = &hsync;
+        OCR1A  = HSYNC;
+        break;
+    }
+}
+
+/* ----------------------------------------------------------------------------
+ * vsync
+ *
+ *  generate vertical sync pulses
+ *  long width of '0' followed by a 4.7uSec '1' and total duration of half a scan line
+ *  called six times to produce a vertical sync
+ *
+ */
+void vsync(void)
+{
+    // generate trigger signal for scope sync
+    PORTD ^= 0x08;
+    PORTD ^= 0x08;
+
+    // use Timer0 to time and output a 2.2uSec 'lo' pulse
+    TCNT0   = 0;            // initialize counter to 0
+    OCR0A   = VSYNCWIDTH;   // initialize pulse width
+    PORTD  &= 0xfb;         // sync pulse to 'lo'
+    TCCR0B |= 0x01;         // TIMER0 mode 2, start @ Fclk/1
+
+    halfLineCounter++;      // use this time to increment scan line
+    if ( halfLineCounter == 2)
+    {
+        scanLine++;
+        halfLineCounter = 0;
+    }
+
+    if ( scanLine == 7)
+        syncHandler = &equalizing;
+
+    loop_until_bit_is_set(TIFR0, OCF0A);
+    PORTD  |= 0x04;         // Sync pulse 'hi'
+    TCCR0B  = 0x00;         // stop timer
+    TIFR0  |= 0x02;         // clear OCF0A flag
+}
+
+/* ----------------------------------------------------------------------------
+ * hsync
  *
  *  generate horizontal sync
  *  1.5uSec with NOP delays(?) and then 2 x 4.7uSec timed with TIMER0 OCR0B
  *  first 4.7uSec SYNC line is low, second 4.7uSec SYNC line is high
  *
  */
-void hsyncHandler(void)
+void hsync(void)
 {
-    PORTD ^= 0x08;          // assert scope trigger
+    // generate trigger signal for scope sync
+    PORTD ^= 0x08;
+    PORTD ^= 0x08;
 
-    // delay 1.5uSec before output of sync pulse
-    // 12 x 1-cycle 'nop' @ 8MHz clock
+    /*
+    // complete a delay of 1.5uSec before output of sync pulse
     asm(
-            "nop\n\t"       // delay 1.5uSec
-            "nop\n\t"
             "nop\n\t"
             "nop\n\t"
             "nop\n\t"
@@ -146,15 +247,18 @@ void hsyncHandler(void)
             "nop\n\t"
             "nop\n\t"
         );
+    */
 
     // use Timer0 to time and output a 4.7uSec 'lo' sync pulse
     TCNT0   = 0;            // initialize counter to 0
+    OCR0A   = SYNCWIDTH;    // hsync pulse width
     PORTD  &= 0xfb;         // sync pulse to 'lo'
     TCCR0B |= 0x01;         // TIMER0 mode 2, start @ Fclk/1
 
-    scanLine++;             // use this time to increment scan line
-    if (scanLine > MAXLINES )
-        scanLine = 0;
+    if ( (scanLine < STARTRENDER) || (scanLine > STOPRENDER) )
+        skipRendering = 1;
+    else
+        skipRendering = 0;
 
     loop_until_bit_is_set(TIFR0, OCF0A);
     PORTD  |= 0x04;         // Sync pulse 'hi'
@@ -165,11 +269,19 @@ void hsyncHandler(void)
     // a 4.7uSec sync pulse before starting video rendering
     TCNT0   = 0;            // initialize counter to 0
     TCCR0B |= 0x01;         // TIMER0 mode 2, start @ Fclk/1
+
+    scanLine++;             // use this time to increment scan line
+    if (scanLine > LASTLINE )
+    {
+        syncHandler = &equalizing;
+        scanLine = FIRSTLINE;
+        OCR1A  = HSYNCHALF;
+        skipRendering = 1;
+    }
+
     loop_until_bit_is_set(TIFR0, OCF0A);
     TCCR0B  = 0x00;         // stop timer
     TIFR0  |= 0x02;         // clear OCF0A flag
-
-    PORTD ^= 0x08;          // de-assert scope trigger
 }
 
 /* ----------------------------------------------------------------------------
@@ -184,6 +296,8 @@ void hsyncHandler(void)
 void renderer(void)
 {
     uint8_t     byteCount;
+
+    if ( skipRendering ) return;
 
     // send first data byte to USART to set up transmitter buffer
     UDR0 = 0;               // stuff shift register with 0 (8 pixels of black)
@@ -218,6 +332,12 @@ void renderer(void)
  */
 int main(void)
 {
+    // initialize globals
+    scanLine    = FIRSTLINE;
+    halfLineCounter = 0;
+    skipRendering = 1;
+    syncHandler = &equalizing;
+
     // on M328p needs the watch-dog timeout flag cleared (why?)
     MCUSR &= ~(1<<WDRF);
     wdt_disable();
@@ -235,7 +355,7 @@ int main(void)
     while (1)
     {
         sleep_cpu();        // sleep
-        hsyncHandler();     // handle sync (differentiate between line and v-sync according to scan line number)
+        (*syncHandler)();   // handle sync (differentiate between line and v-sync according to scan line number)
         renderer();         // do rendering and track scan line count (if in v-sync period do nothing(?) or update display)
     }
 
