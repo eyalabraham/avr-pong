@@ -29,13 +29,19 @@
 #define     BACKPORCH       SYNCWIDTH       // back-porch time width 4.7uSec @ 8MKz clock (with TIMER0 Fclk/1)
 
 // non-interlace video 48x80 pixels
-#define     FIRSTLINE       10              // first visible scan line index
-#define     LASTLINE        234             // max visible line count of non-interlaced field
-#define     VSYNCLINE       248             // line to produce v-sync pulse
+#define     FIRSTLINE       0               // first visible scan line index
+#define     POSTRENDER      240             // blank lines after render
+#define     VSYNCLINE       245             // line to produce v-sync pulse
+#define     PRERENDER       248             // blank lines before restarting render
 #define     LINESINFIELD    262             // total lines in field
-#define     RENDERREP       5               // number of time to repeat a line rendering (save RAM lower resolution)
-#define     PIXELBYTES      12              // bytes in scan line, pixel-resolution = PIXELBYTES x 8
-#define     VIDEORAM        (((STOPRENDER - STARTRENDER + 1) * PIXELBYTES) / RENDERREP) // video ram size in bytes
+#define     RENDERREP       4               // number of time to repeat a line rendering (save RAM lower resolution)
+#define     PIXELBYTES      11              // bytes in scan line, pixel-resolution = PIXELBYTES x 8
+
+#define     VISIBLELINES    POSTRENDER      // 240 visible lines
+#define     VIDEORAM        ((VISIBLELINES * PIXELBYTES) / RENDERREP) // video ram size in bytes
+
+#define     PIXELSX         (PIXELBYTES * 8)
+#define     PIXELSY         (VISIBLELINES / RENDERREP)
 
 #define     TEMPPIXBYTES    20
 
@@ -46,26 +52,9 @@ volatile uint16_t   scanLine;               // scan line counter
 volatile uint8_t    skipRendering;          // renderer enable flag
 
 void        (*activeFunction)(void);        // pointer to active function: render(), game(), or idle()
-uint8_t     video[TEMPPIXBYTES] = {0x00,    // video data
-                                   0xff,
-                                   0x00,
-                                   0xff,
-                                   0x00,
-                                   0xff,
-                                   0x00,
-                                   0xff,
-                                   0x00,
-                                   0xff,
-                                   0x00,
-                                   0x55,
-                                   0x00,
-                                   0xff,
-                                   0x00,
-                                   0xff,
-                                   0x00,
-                                   0xff,
-                                   0x00,
-                                   0xff};
+uint16_t    videoRamIndex;                  // for holding a pre-calculated index
+uint8_t     lineRepeat;
+uint8_t     videoRAM[VIDEORAM];             // video RAM buffer
 
 /* ----------------------------------------------------------------------------
  * function definitions
@@ -130,6 +119,14 @@ void ioinit(void)
  * ISR fires every scan line
  * logic follows this article: http://sagargv.blogspot.in/2011/06/ntsc-demystified-cheats-part-6.html
  *
+ * picture scan lines according to: http://wiki.nesdev.com/w/index.php/NTSC_video
+ * 0    - 239   (240)   active picture video data
+ * 240  - 244   (  5)   blank video
+ * 245  - 247   (  3)   v-sync
+ * 248  - 261   ( 14)   blank video
+ *            --------
+ *               262 lines
+ *
  */
 ISR(TIMER1_OVF_vect)
 {
@@ -143,21 +140,21 @@ ISR(TIMER1_OVF_vect)
         break;
 
     // switch to blank line at end of visible area
-    case (LASTLINE+1):
+    case POSTRENDER:
         //OCR1A = HSYNC;
         activeFunction = &game;
         skipRendering = 1;
         break;
 
     // change PWM timing to issue a v-sync wide pulse
-    case (VSYNCLINE-1):
+    case VSYNCLINE:
         OCR1A = VSYNC;
         //activeFunction = &game;
         //skipRendering = 1;
         break;
 
     // change PWM timing back to h-sync narrow pulse
-    case (VSYNCLINE):
+    case PRERENDER:
         OCR1A = HSYNC;
         //activeFunction = &game;
         //skipRendering = 1;
@@ -166,8 +163,8 @@ ISR(TIMER1_OVF_vect)
 
     // increment scan line and wrap to 1 if needed
     scanLine++;
-    if ( scanLine > LINESINFIELD )
-        scanLine = 1;
+    if ( scanLine == LINESINFIELD )
+        scanLine = 0;
 }
 
 /* ----------------------------------------------------------------------------
@@ -186,9 +183,8 @@ void renderer(void)
     if ( skipRendering ) return;
 
     // send first data byte to USART to set up transmitter buffer
-    //UDR0 = 0;               // stuff shift register with 0 (8 pixels of black)
-    UDR0 = video[0];        // send first pixel byte
-    UCSR0B |= (1 << TXEN0); // enable UART with UCSR0B set bit3 TXEN0 to start transmitting
+    UDR0 = videoRAM[videoRamIndex]; // send first pixel byte
+    UCSR0B |= (1 << TXEN0);         // enable UART with UCSR0B set bit3 TXEN0 to start transmitting
 
     for (byteCount = 1; byteCount < PIXELBYTES; byteCount++)
     {
@@ -196,7 +192,7 @@ void renderer(void)
         loop_until_bit_is_set(UCSR0A, UDRE0);
 
         // send data bytes though UART register UDR0
-        UDR0 = video[byteCount];
+        UDR0 = videoRAM[videoRamIndex+byteCount];
     }
 
     UDR0 = 0;               // stuff shift register with 0 (8 pixels of black)
@@ -204,6 +200,20 @@ void renderer(void)
     // check UDRE0 bit, when this bit is set the last *data* byte has been sent
     // and the '0'-stuffing is in the shift register so we can shut down the Tx
     loop_until_bit_is_set(UCSR0A, UDRE0);
+
+    // move pointer to next video buffer line and account for render repeat
+    // line render repeat loop
+    if ( lineRepeat < RENDERREP )
+    {
+        lineRepeat++;
+    }
+    else
+    {
+        lineRepeat = 0;
+        videoRamIndex+= PIXELBYTES;
+        if ( videoRamIndex == VIDEORAM )
+            videoRamIndex = 0;
+    }
 
     // use UCSR0B clear bit3 TXEN0 to disable transmitter and allow PD1 to go to 'lo'
     UCSR0B &= ~(1 << TXEN0);
@@ -245,10 +255,26 @@ void idle(void)
  */
 int main(void)
 {
+    int row;
+    int column;
+
     // initialize globals
     scanLine       = 1;
+    videoRamIndex  = 0;
+    lineRepeat     = 0;
     skipRendering  = 1;
     activeFunction = &idle;
+
+    // initialize video RAM buffer
+    // for displaying alternating horizontal lines
+    for (row = 0; row < (PIXELSY-1); row += 2)
+    {
+        for (column = 0; column < PIXELBYTES; column++)
+        {
+            videoRAM[row*PIXELBYTES+column] = 0x55;
+            videoRAM[(row+1)*PIXELBYTES+column] = 0xaa;
+        }
+    }
 
     // on M328p needs the watch-dog timeout flag cleared (why?)
     MCUSR &= ~(1<<WDRF);
