@@ -15,6 +15,8 @@
 #include    <avr/sleep.h>
 #include    <avr/wdt.h>
 
+#include    "videoutil.h"
+
 /* ----------------------------------------------------------------------------
  * global definitions
  */
@@ -34,7 +36,7 @@
 #define     VSYNCLINE       245             // line to produce v-sync pulse
 #define     PRERENDER       248             // blank lines before restarting render
 #define     LINESINFIELD    262             // total lines in field
-#define     RENDERREP       4               // number of time to repeat a line rendering (save RAM lower resolution)
+#define     RENDERREP       3               // number of time to repeat a line rendering (save RAM lower resolution)
 #define     PIXELBYTES      11              // bytes in scan line, pixel-resolution = PIXELBYTES x 8
 
 #define     VISIBLELINES    POSTRENDER      // 240 visible lines
@@ -43,13 +45,10 @@
 #define     PIXELSX         (PIXELBYTES * 8)
 #define     PIXELSY         (VISIBLELINES / RENDERREP)
 
-#define     TEMPPIXBYTES    20
-
 /* ----------------------------------------------------------------------------
  * global variables
  */
 volatile uint16_t   scanLine;               // scan line counter
-volatile uint8_t    skipRendering;          // renderer enable flag
 
 void        (*activeFunction)(void);        // pointer to active function: render(), game(), or idle()
 uint16_t    videoRamIndex;                  // for holding a pre-calculated index
@@ -136,28 +135,23 @@ ISR(TIMER1_OVF_vect)
     case FIRSTLINE:
         OCR1A = HSYNC;
         activeFunction = &renderer;
-        skipRendering = 0;
         break;
 
     // switch to blank line at end of visible area
     case POSTRENDER:
-        //OCR1A = HSYNC;
         activeFunction = &game;
-        skipRendering = 1;
         break;
 
     // change PWM timing to issue a v-sync wide pulse
     case VSYNCLINE:
         OCR1A = VSYNC;
-        //activeFunction = &game;
-        //skipRendering = 1;
+        lineRepeat = 0;
+        videoRamIndex = 0;
         break;
 
     // change PWM timing back to h-sync narrow pulse
     case PRERENDER:
         OCR1A = HSYNC;
-        //activeFunction = &game;
-        //skipRendering = 1;
         break;
     }
 
@@ -170,17 +164,13 @@ ISR(TIMER1_OVF_vect)
 /* ----------------------------------------------------------------------------
  * renderer
  *
- *  render video line or output vsync
- *  depending on scan line count this function will output video information or
- *  v-sync singal levels
- *  output through the UART in SPI mode
+ *  render video pixels
+ *  this function outputs video information through the UART in SPI mode
  *
  */
 void renderer(void)
 {
     uint8_t     byteCount;
-
-    if ( skipRendering ) return;
 
     // send first data byte to USART to set up transmitter buffer
     UDR0 = videoRAM[videoRamIndex]; // send first pixel byte
@@ -201,6 +191,12 @@ void renderer(void)
     // and the '0'-stuffing is in the shift register so we can shut down the Tx
     loop_until_bit_is_set(UCSR0A, UDRE0);
 
+    // use UCSR0B clear bit3 TXEN0 to disable transmitter and allow PD1 to go to 'lo'
+    UCSR0B &= ~(1 << TXEN0);
+
+    // manually clear UCSR0A bit 6 - TXC0
+    UCSR0A |= (1 << TXC0);
+
     // move pointer to next video buffer line and account for render repeat
     // line render repeat loop
     if ( lineRepeat < RENDERREP )
@@ -210,16 +206,10 @@ void renderer(void)
     else
     {
         lineRepeat = 0;
-        videoRamIndex+= PIXELBYTES;
+        videoRamIndex += PIXELBYTES;
         if ( videoRamIndex == VIDEORAM )
             videoRamIndex = 0;
     }
-
-    // use UCSR0B clear bit3 TXEN0 to disable transmitter and allow PD1 to go to 'lo'
-    UCSR0B &= ~(1 << TXEN0);
-
-    // manually clear UCSR0A bit 6 - TXC0?
-    UCSR0A |= (1 << TXC0);
 }
 
 /* ----------------------------------------------------------------------------
@@ -231,10 +221,14 @@ void renderer(void)
  */
 void game(void)
 {
+    PORTD ^= 0x08;          // assert timing marker
+
     // do game work here ...
 
     // game work is done so hook in an idle activity
     activeFunction = &idle;
+
+    PORTD ^= 0x08;          // reset timing marker
 }
 
 /* ----------------------------------------------------------------------------
@@ -255,26 +249,25 @@ void idle(void)
  */
 int main(void)
 {
-    int row;
-    int column;
+    uint8_t i;
 
     // initialize globals
-    scanLine       = 1;
+    scanLine       = 0;
     videoRamIndex  = 0;
     lineRepeat     = 0;
-    skipRendering  = 1;
     activeFunction = &idle;
 
-    // initialize video RAM buffer
-    // for displaying alternating horizontal lines
-    for (row = 0; row < (PIXELSY-1); row += 2)
+    // initialize video RAM buffer and game board
+    videoinit(videoRAM, PIXELSX, PIXELSY);
+    clear(0);
+
+    line(0,1,(PIXELSX-1),1);            // top line
+    for (i = 1; i < PIXELSY; i += 4)    // dashed line down the middle
     {
-        for (column = 0; column < PIXELBYTES; column++)
-        {
-            videoRAM[row*PIXELBYTES+column] = 0x55;
-            videoRAM[(row+1)*PIXELBYTES+column] = 0xaa;
-        }
+        line((PIXELSX/2),i,(PIXELSX/2),i+1);
     }
+    write((PIXELSX/2)-22,2,"0");        // initial score
+    write((PIXELSX/2)+2,2,"0");
 
     // on M328p needs the watch-dog timeout flag cleared (why?)
     MCUSR &= ~(1<<WDRF);
@@ -293,7 +286,7 @@ int main(void)
     while (1)
     {
         sleep_cpu();            // sleep
-        (*activeFunction)();    // handle sync (differentiate between line and v-sync according to scan line number)
+        (*activeFunction)();
     }
 
     return 0;
