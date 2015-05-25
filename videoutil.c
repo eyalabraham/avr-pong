@@ -126,6 +126,29 @@ void preset(uint16_t x, uint16_t y)
 }
 
 /* ----------------------------------------------------------------------------
+ * pflip()
+ *
+ *  flip a pixel at screen coordinate (X,Y)
+ *  reverse (XOR) pixel color to background 'black' or foreground 'white'
+ *
+ */
+void pflip(uint16_t x, uint16_t y)
+{
+    uint16_t    index;
+    uint8_t     byteLocation;
+    uint8_t     pattern;
+
+    if ( !initialized ) return;
+
+    if ( x > horisontalPixels || y > verticalPixels ) return;
+
+    byteLocation = x / 8;
+    index = (y * horizontalBytes) + byteLocation;  // byte index of the pixel
+    pattern = bitFlip[(x - (byteLocation * 8))];   // bit index of the pixel
+    videoBuffer[index] ^= pattern;                 // XOR the bit
+}
+
+/* ----------------------------------------------------------------------------
  * line()
  *
  *  draw a line in foreground color 'white'
@@ -163,6 +186,19 @@ void line(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
  *  write text string starting at top left coordinate (X,Y) of the text box
  *
  */
-void write(uint16_t x, uint16_t y, const char* text)
+void write(uint16_t x, uint16_t y, const char text)
 {
+    uint16_t    indexVid;
+    uint16_t    indexFont;
+    uint8_t     i;
+
+    if ( (uint8_t) text < 48 || (uint8_t) text > 57 ) return;
+
+    indexVid = (x / 8) + horizontalBytes * y;
+    indexFont = ((uint8_t) text - 48) * FONTBYTES;
+
+    for ( i = 0; i < FONTBYTES; i++, indexVid += horizontalBytes, indexFont++)
+    {
+        videoBuffer[indexVid] = font[indexFont];
+    }
 }

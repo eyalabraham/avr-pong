@@ -7,7 +7,6 @@
 
 #include    <stdint.h>
 #include    <stdlib.h>
-#include    <string.h>
 
 #include    <avr/pgmspace.h>
 #include    <avr/io.h>
@@ -16,6 +15,7 @@
 #include    <avr/wdt.h>
 
 #include    "videoutil.h"
+#include    "ponggame.h"
 
 /* ----------------------------------------------------------------------------
  * global definitions
@@ -92,11 +92,10 @@ void ioinit(void)
     DDRB   = (1 << PB1);    // enable PB1 as output for OC1A
 
     // initialize ADC converter input ADC0
-    /*
     ADMUX  = 0x60;  // external AVcc reference, left adjusted result, ADC0 source
-    ADCSRA = 0xEF;  // enable auto-triggered conversion and interrupts, ADC clock 31.25KHz
-    ADCSRB = 0x00;  // auto trigger source is free-running
-    */
+    ADCSRA = 0x10;  // don't enable ADC, no auto-triggered conversion, no interrupts, ADC clock Fclk/2, force clear ADIF bit
+    ADCSRB = 0x00;  // free-running trigger source
+    DIDR0  = 0x03;  // disable digital input on ADC0 and ADC1 pins
 
     // initialize UART in SPI mode
     // UCSR0A: check bit.5 - UDRE0 to see if UDR0 is ready to receive another byte
@@ -217,25 +216,6 @@ void renderer(void)
 }
 
 /* ----------------------------------------------------------------------------
- * game()
- *
- *  this routine include all the Pong game logic
- *  in must complete within the time alloted for v-sync pulses
- *
- */
-void game(void)
-{
-    PORTD ^= 0x08;          // assert timing marker
-
-    // do game work here ...
-
-    // game work is done so hook in an idle activity
-    activeFunction = &idle;
-
-    PORTD ^= 0x08;          // reset timing marker
-}
-
-/* ----------------------------------------------------------------------------
  * idle()
  *
  *  this routine will be used whenever no other actions needs to be take, neither
@@ -265,14 +245,16 @@ int main(void)
     videoinit(videoRAM, PIXELSX, PIXELSY);
     clear(0);
 
-    line(0,1,(PIXELSX-1),1);                        // top line
-    line(0,59,(PIXELSX-1),59);    // bottom line
-    for (i = 1; i < PIXELSY; i += 4)                // dashed line down the middle
+    line(0,TOP,(PIXELSX-1),TOP);        // top line
+    line(0,BOTTOM,(PIXELSX-1),BOTTOM);  // bottom line
+    for (i = 1; i < PIXELSY; i += 4)    // dashed line down the middle
     {
         line((PIXELSX/2),i,(PIXELSX/2),i+1);
     }
-    write((PIXELSX/2)-22,2,"0");                    // initial score
-    write((PIXELSX/2)+2,2,"0");
+    line(LPADCOL,(LPADINIT-HALFPAD),LPADCOL,(LPADINIT+HALFPAD)); // draw left paddles
+    line(RPADCOL,(RPADINIT-HALFPAD),RPADCOL,(RPADINIT+HALFPAD)); // draw right paddles
+    write((PIXELSX/2)+LEFTSCORE,3,'0'); // print initial score
+    write((PIXELSX/2)+RIGHTSCORE,3,'0');
 
     // on M328p needs the watch-dog timeout flag cleared (why?)
     MCUSR &= ~(1<<WDRF);

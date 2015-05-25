@@ -15,9 +15,10 @@ void    videoinit(uint8_t*, uint16_t, uint16_t);            // initialize video 
 void    clear(uint8_t);                                     // clear the video RAM to an 8-bit pattern
 void    pset(uint16_t, uint16_t);                           // set a pixel at screen coordinate (X,Y)
 void    preset(uint16_t, uint16_t);                         // clear a pixel at screen coordinate (X,Y)
+void    pflip(uint16_t x, uint16_t y);                      // flip (XOR) a pixel at screen coordinate (X,Y)
 void    line(uint16_t, uint16_t, uint16_t, uint16_t);       // draw a line between points (X1,Y1)-(X2,Y2)
 //void    box(uint16_t, uint16_t, uint16_t, uint16_t);        // draw a box between points (X1,Y1)-(X2,Y2)
-void    write(uint16_t, uint16_t, const char*);             // write text string at coordinate (X,Y)
+void    write(uint16_t, uint16_t, const char);             // write text string at coordinate (X,Y)
 //void    clearbox(uint16_t, uint16_t, uint16_t, uint16_t);   // clear a rectangle (X1,Y1)-(X2,Y2)
 
 #endif /* __VIDEOUTIL_H__ */
