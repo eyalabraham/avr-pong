@@ -13,7 +13,7 @@
 #include    "videoutil.h"
 
 /* ----------------------------------------------------------------------------
- * global definitions
+ * global variables
  */
 uint16_t    horisontalPixels = 0;
 uint16_t    verticalPixels   = 0;
@@ -25,9 +25,20 @@ uint8_t     initialized      = 0;
 uint8_t     bitFlip[8] = {0x80, 0x40, 0x20, 0x10,
                           0x08, 0x04, 0x02, 0x01};
 
-/* ----------------------------------------------------------------------------
- * global variables
- */
+// definitions and data for digit fonts
+#define     FONTBYTES   7   // number of bitmap data bytes per digit font
+#define     FONTWIDTH   6   // 5 pixels plus 1 pixel space between characters
+
+uint8_t     font[70]   = {0x70, 0x88, 0x88, 0x88, 0x88, 0x88, 0x70,     // '0'
+                          0x10, 0x30, 0x10, 0x10, 0x10, 0x10, 0x10,     // '1'
+                          0x70, 0x88, 0x08, 0x70, 0x80, 0x80, 0xF8,     // '2'
+                          0x70, 0x88, 0x08, 0x30, 0x08, 0x88, 0x70,     // '3'
+                          0x10, 0x90, 0x90, 0x90, 0xF8, 0x10, 0x10,     // '4'
+                          0xF8, 0x80, 0x80, 0xF0, 0x08, 0x88, 0x70,     // '5'
+                          0x70, 0x88, 0x80, 0xF0, 0x88, 0x88, 0x70,     // '6'
+                          0xF8, 0x08, 0x10, 0x20, 0x40, 0x80, 0x80,     // '7'
+                          0x70, 0x88, 0x88, 0x70, 0x88, 0x88, 0x70,     // '8'
+                          0x70, 0x88, 0x88, 0x78, 0x08, 0x88, 0x70};    // '9'
 
 /* ----------------------------------------------------------------------------
  * utility functions

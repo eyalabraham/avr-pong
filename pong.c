@@ -111,7 +111,7 @@ void ioinit(void)
     // - PD2: Sync pulse, output, no pull-up
     // - PD3: Scope trigger, output, no pull-up
     DDRD  = 0x0E;           // PD pin directions (output: PD1, PD2, PD3)
-    PORTD = 0x04;           // initial value of PD1 (pixel) is '0', PD2 (Sync) is '1', and PD3 (scope trig.) is '0'
+    PORTD = 0x06;           // initial value of PD1 (pixel) is '1', PD2 (Sync) is '1', and PD3 (scope trig.) is '0'
 }
 
 /* ----------------------------------------------------------------------------
@@ -166,6 +166,10 @@ ISR(TIMER1_OVF_vect)
  *
  *  render video pixels
  *  this function outputs video information through the UART in SPI mode
+ *  note that pixel data bytes are inverted before sending out UART
+ *  this is because we have an inverter (74LS14) on the pixel output.
+ *  the inverter was added to eliminate the '1' pulse that the UART sends
+ *  when it is enabled.
  *
  */
 void renderer(void)
@@ -173,16 +177,16 @@ void renderer(void)
     uint8_t     byteCount;
 
     // send first data byte to USART to set up transmitter buffer
-    UDR0 = videoRAM[videoRamIndex]; // send first pixel byte
-    UCSR0B |= (1 << TXEN0);         // enable UART with UCSR0B set bit3 TXEN0 to start transmitting
+    UDR0 = ~(videoRAM[videoRamIndex]); // invert and send first pixel byte (pixel output has n inverter on it
+    UCSR0B |= (1 << TXEN0);            // enable UART with UCSR0B set bit3 TXEN0 to start transmitting
 
     for (byteCount = 1; byteCount < PIXELBYTES; byteCount++)
     {
         // loop on UCSR0A:  bit.5 - UDRE0 to see if UDR0 is ready to receive another byte
         loop_until_bit_is_set(UCSR0A, UDRE0);
 
-        // send data bytes though UART register UDR0
-        UDR0 = videoRAM[videoRamIndex+byteCount];
+        // invert and send data bytes though UART register UDR0
+        UDR0 = ~(videoRAM[videoRamIndex+byteCount]);
     }
 
     UDR0 = 0;               // stuff shift register with 0 (8 pixels of black)
@@ -261,12 +265,13 @@ int main(void)
     videoinit(videoRAM, PIXELSX, PIXELSY);
     clear(0);
 
-    line(0,1,(PIXELSX-1),1);            // top line
-    for (i = 1; i < PIXELSY; i += 4)    // dashed line down the middle
+    line(0,1,(PIXELSX-1),1);                        // top line
+    line(0,59,(PIXELSX-1),59);    // bottom line
+    for (i = 1; i < PIXELSY; i += 4)                // dashed line down the middle
     {
         line((PIXELSX/2),i,(PIXELSX/2),i+1);
     }
-    write((PIXELSX/2)-22,2,"0");        // initial score
+    write((PIXELSX/2)-22,2,"0");                    // initial score
     write((PIXELSX/2)+2,2,"0");
 
     // on M328p needs the watch-dog timeout flag cleared (why?)
