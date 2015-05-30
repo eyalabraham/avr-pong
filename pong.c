@@ -251,10 +251,10 @@ int main(void)
     {
         line((PIXELSX/2),i,(PIXELSX/2),i+1);
     }
-    line(LPADCOL,(LPADINIT-HALFPAD),LPADCOL,(LPADINIT+HALFPAD)); // draw left paddles
-    line(RPADCOL,(RPADINIT-HALFPAD),RPADCOL,(RPADINIT+HALFPAD)); // draw right paddles
-    write((PIXELSX/2)+LEFTSCORE,3,'0'); // print initial score
-    write((PIXELSX/2)+RIGHTSCORE,3,'0');
+    line(LPADCOL,(LPADINIT-HALFPAD),LPADCOL,(LPADINIT+HALFPAD));    // draw left paddles
+    line(RPADCOL,(RPADINIT-HALFPAD),RPADCOL,(RPADINIT+HALFPAD));    // draw right paddles
+    writechar((PIXELSX/2)+LEFTSCORE,3,'0');                         // print initial score
+    writechar((PIXELSX/2)+RIGHTSCORE,3,'0');
 
     // on M328p needs the watch-dog timeout flag cleared (why?)
     MCUSR &= ~(1<<WDRF);

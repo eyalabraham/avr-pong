@@ -1,0 +1,104 @@
+
+ pong.c
+
+    video generator and "pong" game for AVR ATmega328p
+    running at internal 8Mhz clock on NTSC TV input
+ 
+ horizontal resolution
+==================================================
+
+use UART is SPI mode "20. USART in SPI Mode" pg.204
+    
+horizontal line time    63.5 uS
+hsync and back porch    10.9 uS
+                      ----------
+net video time          52.6 uS
+
+at 8MHz clock, UART in SPI mode runs at 4Mbps max, bit time is 0.25 uS
+
+in 52.6 uS we can fit 208 bits -> pixels
+convert to a byte count we get 26 bytes -> 208 pixels
+                                          ------------
+
+max rendering resolution can use 20 bytes for 160 horizontal pixels
+    
+the pong game will use 11 bytes at 2Mbps for 88 vertical pixels
+    
+ vertical resolution
+==================================================
+
+following the scan line logic on NES Nintendo systems
+picture scan lines according to: http://wiki.nesdev.com/w/index.php/NTSC_video
+ 0    - 239   (240)   active picture video data
+ 240  - 244   (  5)   blank video
+ 245  - 247   (  3)   v-sync
+ 248  - 261   ( 14)   blank video
+            --------
+               262 lines
+
+in pong, render each line 3 times. this will give 'taller' pixels to match their width
+and will save RAM because the video buffer will be smaller:
+ ( 240[lines] / 3 ) x 11 [bytes per line] = 880 bytes
+ 
+the pong game will have a resolution of 80 horizontal pixels
+
+ code structure using PWM method
+==================================================
+
+1.  Timer1 is configured as fast PWM, mode 14
+    PWM frequency is set by ICR to get 63.5uSec
+    'lo' pulse width is set by the value in OCR1A
+    use inverting mode, OC1A will go 'lo' at BOTTOM and 'hi' on OCR1A compare match
+    sync pulse will be on PB1 (OC1A)
+2.  set to interrupt on overflow so ISR runs every 63.5uSec
+    ISR increments scan line number, manages the PWM width through OCR1A, and
+    hooks render routine or game routine as required
+3.  vertical sync will use simple method from (see Nintendo reference above)
+    as long '0' pulses each about 58uSec wide on scan lines 245, 246 and 247
+4.  during the v-sync + blank scan lines time (22 rows x 63.5uSec) the game() routine is hooked
+    and we have about 1,300uSec (about 22 scan lines) to run our game before rendering restarts!
+    during this time there is no need to worry about sync pulses because the Timer PWM takes care
+    of the pulses and their accuracy...
+    game() routine must finish before 22 scan lines and simply hook the idle() routine and exit
+
+ IO pin assignments
+==================================================
+
+                            470
+  TXD pin-3         o-----/\/\/\/-----+             Pixel video
+                                      |
+                            1K        |
+  PB1 (OC1A) pin-15 o--+--/\/\/\/-----+-----------o SYNC+Pixel video signal to monitor/TV
+                       |
+                       +--------------------------o Scope external trigger
+  
+  (AD0) pin-23      o-----------------------------o Right 'paddle' center tap
+  
+  (AD1) pin-24      o-----------------------------o Left 'paddle' center tap 
+  
+
+  Audio beeps
+==================================================
+
+
+  Issues/fixes
+==================================================
+
+1.  extra '1' level at start of video line. UART sends a '1' bit level
+    just before starting to send pixel bits
+    fixed by adding an inverter (74LS14) on the pixel output
+    and pixel bytes sent out from the UART are first inverted (bitwise NOT).
+    the default IO pin of the UART (PD1) changed to default value of '1'
+
+2.  video image projected ok, lines and picture are a bit "wavy"
+    possible fix would be to use an external clock or crystal
+
+3.  only seeing 188 visible lines instead of 240?
+
+4.  when moving one paddle the other paddle moves slightly in the same direction
+    maybe conversion process or some other bug?
+    Reading through application note "Atmel AVR126: ADC of megaAVR in Single Ended Mode"
+    section "2.8 Analog input circuitry" it seems that the 1Mohm paddle potentiometers I am 
+    using may have an impedance that is too high compared to the 10Kohm required... check.
+
+

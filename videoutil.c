@@ -152,7 +152,7 @@ void pflip(uint16_t x, uint16_t y)
  * line()
  *
  *  draw a line in foreground color 'white'
- *  between coordinates (X1,Y1)-(X2,Y2)
+ *  between coordinates (X1,Y1)-(X2,Y2) using Bresenham's line algorithm
  *  safe to use coordinate outside screen,
  *  function will draw clipped lines.
  *
@@ -181,18 +181,20 @@ void line(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 }
 
 /* ----------------------------------------------------------------------------
- * line()
+ * writechar()
  *
- *  write text string starting at top left coordinate (X,Y) of the text box
+ *  write a character starting at top left coordinate (X,Y) of the text box
  *
  */
-void write(uint16_t x, uint16_t y, const char text)
+void writechar(uint16_t x, uint16_t y, const char text)
 {
     uint16_t    indexVid;
     uint16_t    indexFont;
     uint8_t     i;
 
-    if ( (uint8_t) text < 48 || (uint8_t) text > 57 ) return;
+    if ( !initialized ) return;
+
+    if ( (uint8_t) text < '0' || (uint8_t) text > '9' ) return;
 
     indexVid = (x / 8) + horizontalBytes * y;
     indexFont = ((uint8_t) text - 48) * FONTBYTES;
@@ -201,4 +203,26 @@ void write(uint16_t x, uint16_t y, const char text)
     {
         videoBuffer[indexVid] = font[indexFont];
     }
+}
+
+/* ----------------------------------------------------------------------------
+ * getXres()
+ *
+ *  get X resolution / max pixel count
+ *
+ */
+uint16_t getXres(void)
+{
+    return horisontalPixels;
+}
+
+/* ----------------------------------------------------------------------------
+ * getYres()
+ *
+ *  get Y resolution / max pixel count
+ *
+ */
+uint16_t getYres(void)
+{
+    return verticalPixels;
 }
