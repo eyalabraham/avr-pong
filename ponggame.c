@@ -27,6 +27,20 @@
 #define     LEFT            1
 #define     RIGHT           2
 
+#define     SOUNDOFF        0               // flag which sound to produce
+#define     SOUNDACTIVE     1               // sound is already playing
+#define     SOUNDOUT        2
+#define     SOUNDPADDLE     3
+#define     SOUNDWALL       4
+
+#define     BEEPOUT         310             // 200Hz  <-- OCR0A values for sound
+#define     BEEPPADDLE      10              // 1500Hz
+#define     BEEPWALL        6               // 2000Hz
+#define     SOUNDON         0x04            // TCCR0B to turn on sound, 0x00 for off
+
+#define     LONGBEEP        30              // 500mSec
+#define     SHORTBEEP       6               // 100mSec
+
 /* ----------------------------------------------------------------------------
  * global variables
  */
@@ -43,6 +57,10 @@ uint8_t     curLeftPadCenter = LPADINIT;
 uint8_t     leftScore = 0;                  // score variable
 uint8_t     rightScore = 0;
 uint8_t     scoringFlag = NONE;             // score flag: NONE, LEFT, RIGHT
+
+// sound generator
+uint8_t     soundDuration = 0;              // increments on 16.6mSec (frame rate)
+uint8_t     soundFlag   = SOUNDOFF;         // sound type flag
 
 // ball movement
 int         ballX0, ballY0;                 // start and end coordinates of ball movement trajectory line
@@ -150,6 +168,7 @@ void game(void)
             serveOffset = -SERVECYCLE;
         serveDir = (serveDir==UP) ? DOWN : UP;  // switch serve direction
 
+        // ball movement and action state machine
         switch ( serveFlag )                    // determine what to do with the next move
         {
         // no serve, just move the ball and check for
@@ -161,16 +180,17 @@ void game(void)
             {
                 preset(ballX0, ballY0);         // make sure ball is cleared
                 scoringFlag = LEFT;             // left player scored
+                soundFlag = SOUNDOUT;
                 serveFlag = LEFTSERVE;          // next serve from left player
             }
             else if ( ballX0 == (LPADCOL-1))
             {
                 preset(ballX0, ballY0);         // make sure ball is cleared
                 scoringFlag = RIGHT;            // right player scored
+                soundFlag = SOUNDOUT;
                 serveFlag = RIGHTSERVE;         // next serve from right player
             }
             // ball reached one of the paddles
-            // check if touching one, if not do points else return ball
             else if ( ballX0 == (LPADCOL+1) &&
                  ballY0 <= (curLeftPadCenter+HALFPAD) &&
                  ballY0 >= (curLeftPadCenter-HALFPAD))
@@ -184,6 +204,7 @@ void game(void)
                 dy = abs(ballY1-ballY0);
                 sy = ballY0<ballY1 ? 1 : -1;
                 err = (dx>dy ? dx : -dy)/2;
+                soundFlag = SOUNDPADDLE;
                 serveFlag = NOSERVE;
             }
             else if ( ballX0 == (RPADCOL-1) &&
@@ -199,6 +220,7 @@ void game(void)
                 dy = abs(ballY1-ballY0);
                 sy = ballY0<ballY1 ? 1 : -1;
                 err = (dx>dy ? dx : -dy)/2;
+                soundFlag = SOUNDPADDLE;
                 serveFlag = NOSERVE;
             }
             // reached top or bottom of game board
@@ -214,12 +236,16 @@ void game(void)
                 dy = abs(ballY1-ballY0);
                 sy = ballY0<ballY1 ? 1 : -1;
                 err = (dx>dy ? dx : -dy)/2;
+                soundFlag = SOUNDWALL;
                 serveFlag = NOSERVE;
             }
             break;
 
         // serve new ball from the right
         case RIGHTSERVE:
+            if ( soundFlag != SOUNDOFF )        // wait for 'out' sound to complete
+                break;
+
             ballX0 = RPADCOL-1;                 // serve from center of paddle
             ballY0 = curRightPadCenter;         // one line into game board
             ballX1 = (getXres() / 2) + serveOffset;
@@ -230,11 +256,15 @@ void game(void)
             sy = ballY0<ballY1 ? 1 : -1;
             err = (dx>dy ? dx : -dy)/2;
             scoringFlag = NONE;
+            soundFlag = SOUNDPADDLE;
             serveFlag = NOSERVE;
             break;
 
         // serve new ball from the left
         case LEFTSERVE:
+            if ( soundFlag != SOUNDOFF )        // wait for 'out' sound to complete
+                break;
+
             ballX0 = LPADCOL+1;                 // serve from center of paddle
             ballY0 = curLeftPadCenter;          // one line into game board
             ballX1 = (getXres() / 2) + serveOffset;
@@ -245,6 +275,7 @@ void game(void)
             sy = ballY0<ballY1 ? 1 : -1;
             err = (dx>dy ? dx : -dy)/2;
             scoringFlag = NONE;
+            soundFlag = SOUNDPADDLE;
             serveFlag = NOSERVE;
             break;
         }
@@ -266,16 +297,56 @@ void game(void)
             rightScore++;
             if (rightScore == 10) rightScore = 0;
             writechar(((getXres()+1)/2)+RIGHTSCORE,3,('0'+rightScore));
+            scoringFlag = NONE;
             break;
 
         case LEFT:
             leftScore++;
             if (leftScore == 10) leftScore = 0;
             writechar(((getXres()+1)/2)+LEFTSCORE,3,('0'+leftScore));
+            scoringFlag = NONE;
             break;
         }
+    }
 
-        // generate sound
+    // generate sound
+
+    // sound management state-machine
+    switch ( soundFlag )
+    {
+    case SOUNDOFF:
+        TCCR0B = 0;                         // turn off sound
+        break;
+
+    case SOUNDACTIVE:                       // sound already on
+        soundDuration--;                    // decrement duration and check for end
+        if (soundDuration == 0 )
+            soundFlag = SOUNDOFF;
+        break;
+
+    case SOUNDPADDLE:
+        soundDuration = SHORTBEEP;          // setup sound for paddle touch
+        TCNT0 = 0;
+        OCR0A = BEEPPADDLE;
+        TCCR0B = SOUNDON;
+        soundFlag = SOUNDACTIVE;
+        break;
+
+    case SOUNDWALL:
+        soundDuration = SHORTBEEP;          // setup sound for wall touch
+        TCNT0 = 0;
+        OCR0A = BEEPWALL;
+        TCCR0B = SOUNDON;
+        soundFlag = SOUNDACTIVE;
+        break;
+
+    case SOUNDOUT:
+        soundDuration = LONGBEEP;           // setup sound for ball out (score)
+        TCNT0 = 0;
+        OCR0A = BEEPOUT;
+        TCCR0B = SOUNDON;
+        soundFlag = SOUNDACTIVE;
+        break;
     }
 
     // game work is done so hook in an idle activity

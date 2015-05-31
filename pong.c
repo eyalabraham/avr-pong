@@ -77,6 +77,10 @@ void ioinit(void)
     CLKPR = 0x00;
 
     // Timer0 for audio beeps
+    TIMSK0 = 0;             // no interrupts
+    TCCR0A = 0x42;          // CTC mode, toggle OC0A on Compare Match with OCRA
+    TCCR0B = 0x00;          // 0x04 for Fclk/256 = 31.25KHz
+    OCR0A  = 0;
 
     // Timer1 OCR1A to provide horizontal timing for NTSC at 63.5uSec interval
     // OCR1A will drive an interrupt routine
@@ -88,8 +92,6 @@ void ioinit(void)
     OCR1B  = 0;             // not used
     ICR1   = LINERATE;      // PWM TOP value for 63.5uSec lane rate
     TIMSK1 = 0x01;          // interrupt on timer overflow (every scan line)
-
-    DDRB   = (1 << PB1);    // enable PB1 as output for OC1A
 
     // initialize ADC converter input ADC0
     ADMUX  = 0x60;  // external AVcc reference, left adjusted result, ADC0 source
@@ -107,10 +109,12 @@ void ioinit(void)
 
     // initialize general IO pins for output
     // - PD1: pixel transmitter, out, no pull-up. needed for default idle state to be '0'
-    // - PD2: Sync pulse, output, no pull-up
     // - PD3: Scope trigger, output, no pull-up
-    DDRD  = 0x0E;           // PD pin directions (output: PD1, PD2, PD3)
-    PORTD = 0x06;           // initial value of PD1 (pixel) is '1', PD2 (Sync) is '1', and PD3 (scope trig.) is '0'
+    // - PD6: OC0A audio output
+    // - PB1: OC1A sync output
+    DDRB  |= (1 << DDB1);   // enable PB1 as output for OC1A
+    DDRD  |= 0x4a;          // PD pin directions (output: PD1, PD3, PD6)
+    PORTD |= 0x02;          // initial value of PD1 (pixel) is '1', PD3 (scope trig.) is '0', and PD6 is '0'
 }
 
 /* ----------------------------------------------------------------------------

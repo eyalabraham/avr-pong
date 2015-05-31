@@ -61,26 +61,32 @@ the pong game will have a resolution of 80 horizontal pixels
     of the pulses and their accuracy...
     game() routine must finish before 22 scan lines and simply hook the idle() routine and exit
 
+  Audio beeps
+==================================================
+
+using Timer0 in Clear Timer on Compare Match (CTC) mode and the output
+OC0A is set to toggle upon reaching OCR0A value.
+OCR0A value is set to produce the desired tones.
+sound generation is managed by a simple state machine implemented with a
+switch-case construct.
+
  IO pin assignments
 ==================================================
 
                             470
-  TXD pin-3         o-----/\/\/\/-----+             Pixel video
+  (TXD) pin-3       o-----/\/\/\/-----+             Pixel video
                                       |
                             1K        |
-  PB1 (OC1A) pin-15 o--+--/\/\/\/-----+-----------o SYNC+Pixel video signal to monitor/TV
+  (OC1A) pin-15     o--+--/\/\/\/-----+-----------o SYNC+Pixel video signal to monitor/TV
                        |
                        +--------------------------o Scope external trigger
   
   (AD0) pin-23      o-----------------------------o Right 'paddle' center tap
   
-  (AD1) pin-24      o-----------------------------o Left 'paddle' center tap 
+  (AD1) pin-24      o-----------------------------o Left 'paddle' center tap
   
-
-  Audio beeps
-==================================================
-
-
+  (OC0A) pin-12     o-----------------------------o Audio out
+  
   Issues/fixes
 ==================================================
 
