@@ -53,19 +53,23 @@ the pong game will have a resolution of 80 horizontal pixels
 2.  set to interrupt on overflow so ISR runs every 63.5uSec
     ISR increments scan line number, manages the PWM width through OCR1A, and
     hooks render routine or game routine as required
-3.  vertical sync will use simple method from (see Nintendo reference above)
-    as long '0' pulses each about 58uSec wide on scan lines 245, 246 and 247
+3.  vertical sync will use a simple method from the Nintendo reference above and will
+    generate short 4.7uSec or long '0' pulses each about 58uSec wide on scan lines 245, 246 and 247
 4.  during the v-sync + blank scan lines time (22 rows x 63.5uSec) the game() routine is hooked
     and we have about 1,300uSec (about 22 scan lines) to run our game before rendering restarts!
     during this time there is no need to worry about sync pulses because the Timer PWM takes care
     of the pulses and their accuracy...
     game() routine must finish before 22 scan lines and simply hook the idle() routine and exit
 
+    when measured on a scope, the pong game() routine never uses more that 150uSec
+    timing is done through an output port pin that toggels at the start and end of game()
+    a full game is about 10% of the available time
+
   Audio beeps
 ==================================================
 
-using Timer0 in Clear Timer on Compare Match (CTC) mode and the output
-OC0A is set to toggle upon reaching OCR0A value.
+using Timer0 in Clear Timer on Compare Match (CTC) mode with the OC0A output
+set to toggle upon reaching OCR0A value.
 OCR0A value is set to produce the desired tones.
 sound generation is managed by a simple state machine implemented with a
 switch-case construct.

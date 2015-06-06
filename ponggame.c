@@ -17,7 +17,7 @@
  * global definitions
  */
 #define     SERVECYCLE      20              // counter max value used to "randomize" serve direction
-#define     BALLVELOCITY    3               // ball velocity: 1=fast .. 10=slow (i.e. if =1 ball moves every 16.6mSec, =10 every 166.3mSec etc.)
+#define     BALLVELOCITY    2               // ball velocity: 1=fast .. 10=slow (i.e. if =1 ball moves every 16.6mSec, =10 every 166.3mSec etc.)
 #define     NOSERVE         0               // serve flag and direction
 #define     RIGHTSERVE      1
 #define     LEFTSERVE       2
@@ -33,12 +33,12 @@
 #define     SOUNDPADDLE     3
 #define     SOUNDWALL       4
 
-#define     BEEPOUT         310             // 200Hz  <-- OCR0A values for sound
+#define     BEEPOUT         61              // 250Hz  <-- OCR0A values for sound
 #define     BEEPPADDLE      10              // 1500Hz
 #define     BEEPWALL        6               // 2000Hz
-#define     SOUNDON         0x04            // TCCR0B to turn on sound, 0x00 for off
+#define     SOUNDON         0x04            // TCCR0B to turn 'on' sound, 0x00 for 'off'
 
-#define     LONGBEEP        30              // 500mSec
+#define     LONGBEEP        30              // 500mSec  ( x field refresh cycles os 16.6mSec)
 #define     SHORTBEEP       6               // 100mSec
 
 /* ----------------------------------------------------------------------------
